@@ -1,106 +1,154 @@
-import React, { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { UploadCloud, Lock } from "lucide-react";
-import { toast } from "react-toastify";
-import useAuthStore from "../../store/authStore";
-import Loading from "../../components/common/Loading";
+import React, { Suspense, lazy } from "react";
+import { Router, Routes, Route, Navigate, Outlet } from "react-router";
+import { createBrowserHistory } from "history";
+import useAuthStore from "../store/authStore";
+import Loading from "../components/common/Loading";
+import Navbar from "../components/common/Navbar";
+import Sidebar from "../components/common/Sidebar";
 
-const SettingsPage = () => {
-  const { user, updateProfile, updatePassword, isLoading } = useAuthStore();
-  const [formData, setFormData] = useState({
-    firstname: "",
-    lastname: "",
-    profileImage: null,
-  });
-  const [passwordData, setPasswordData] = useState({
-    oldPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
-  const [previewImage, setPreviewImage] = useState(null);
-  const [passwordError, setPasswordError] = useState("");
+// Create history object
+const history = createBrowserHistory();
 
-  // โหลดข้อมูลผู้ใช้เมื่อหน้าโหลด
-  useEffect(() => {
-    if (user) {
-      setFormData({
-        firstname: user.firstname || "",
-        lastname: user.lastname || "",
-        profileImage: null
-      });
-    }
-  }, [user]);
+// Lazy loaded pages
+const LoginPage = lazy(() => import("../pages/auth/Login"));
+const RegisterPage = lazy(() => import("../pages/auth/Register"));
+const ProfilePage = lazy(() => import("../pages/user/Profile"));
+const SettingsPage = lazy(() => import("../pages/user/SettingsPage"));
+const ChallengePage = lazy(() => import("../pages/challenge/ChallengePage"));
+const MyChallengePage = lazy(() => import("../pages/challenge/MyChallenge"));
+const PublicChallengePage = lazy(() => import("../pages/challenge/PublicChallenge"));
+const DailyChallengePage = lazy(() => import("../pages/challenge/DailyChallenge"));
+const BadgesPage = lazy(() => import("../pages/user/BadgesPage"));
+const AdminDashboard = lazy(() => import("../pages/admin/AdminDashboard"));
+const ManageUsers = lazy(() => import("../pages/admin/ManageUsers"));
+const ManageChallenges = lazy(() => import("../pages/admin/ManageChallenges"));
 
-  // อัปเดตรูปโปรไฟล์
-// ตัวอย่าง handleFileChange ใน SettingsPage
-const handleFileChange = (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    // ยกเลิก URL ของรูปตัวอย่างเดิม (ถ้ามี) เพื่อป้องกัน memory leak
-    if (previewImage && previewImage.startsWith('blob:')) {
-      URL.revokeObjectURL(previewImage);
-    }
-    
-    setFormData({ ...formData, profileImage: file });
-    setPreviewImage(URL.createObjectURL(file));
-  }
-};
-
-  // อัปเดตชื่อและนามสกุล
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
-
-  // อัปเดตรหัสผ่าน
-  const handlePasswordChange = (e) => {
-    const { name, value } = e.target;
-    setPasswordData({ ...passwordData, [name]: value });
-  };
-
-  // อัปเดตโปรไฟล์
-  const handleUpdateProfile = async () => {
-    // สร้าง FormData
-    const data = new FormData();
-    data.append("firstname", formData.firstname);
-    data.append("lastname", formData.lastname);
-    if (formData.profileImage) {
-      data.append("profileImage", formData.profileImage);
-    }
-
-    // ใช้ updateProfile จาก store
-    const success = await updateProfile(data);
-    if (success) {
-      setPreviewImage(null); // รีเซ็ตรูปตัวอย่าง
-    }
-  };
-
-  // อัปเดตรหัสผ่าน
-  const handleChangePassword = async () => {
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setPasswordError("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
-      return;
-    }
-    
-    setPasswordError("");
-    const success = await updatePassword(passwordData);
-    if (success) {
-      setPasswordData({
-        oldPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-    }
-  };
-
+// Wrapper for authenticated routes with layout
+const AuthenticatedLayout = () => {
   return (
-    // JSX เหมือนเดิม แต่เรียกใช้ฟังก์ชั่นที่อัพเดตแล้ว
-    // และแสดง Loading เมื่อ isLoading เป็น true
-    <div className="p-8 bg-[#1E2139] min-h-screen text-white flex items-center justify-center">
-      {isLoading && <Loading />}
-      {/* ส่วนที่เหลือเหมือนเดิม */}
-    </div>
+    <>
+      <Navbar />
+      <Sidebar />
+      <main className="pt-16 pl-0 md:pl-64 min-h-screen bg-[#1E2139]">
+        <Suspense fallback={<Loading />}>
+          <Outlet />
+        </Suspense>
+      </main>
+    </>
   );
 };
 
-export default SettingsPage;
+// Protected route component
+const ProtectedRoute = ({ allowedRoles, children }) => {
+  const { isAuthenticated, user } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
+    // Redirect based on user role
+    return user?.role === "ADMIN" 
+      ? <Navigate to="/admin/dashboard" replace />
+      : <Navigate to="/user/profile" replace />;
+  }
+
+  return children;
+};
+
+const AppRouter = () => {
+  const { isAuthenticated, user } = useAuthStore();
+
+  return (
+    <Router navigator={history} location={history.location}>
+      <Suspense fallback={<Loading fullScreen />}>
+        <Routes>
+          {/* Public Routes */}
+          <Route 
+            path="/login" 
+            element={
+              isAuthenticated 
+                ? <Navigate to="/" /> 
+                : <LoginPage />
+            } 
+          />
+          <Route 
+            path="/register" 
+            element={
+              isAuthenticated 
+                ? <Navigate to="/" /> 
+                : <RegisterPage />
+            } 
+          />
+
+          {/* User Routes (Authenticated) */}
+          <Route 
+            element={
+              <ProtectedRoute allowedRoles={["USER"]}>
+                <AuthenticatedLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/user/profile" element={<ProfilePage />} />
+            <Route path="/user/settings" element={<SettingsPage />} />
+            <Route path="/user/challenges" element={<ChallengePage />} />
+            <Route path="/user/my-challenges" element={<MyChallengePage />} />
+            <Route path="/user/public-challenges" element={<PublicChallengePage />} />
+            <Route path="/user/daily-challenges" element={<DailyChallengePage />} />
+            <Route path="/user/badges" element={<BadgesPage />} />
+          </Route>
+
+          {/* Admin Routes (Authenticated) */}
+          <Route 
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AuthenticatedLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/manage-users" element={<ManageUsers />} />
+            <Route path="/admin/manage-challenges" element={<ManageChallenges />} />
+          </Route>
+
+          {/* Root Route Redirect */}
+          <Route
+            path="/"
+            element={
+              isAuthenticated ? (
+                user?.role === "ADMIN" ? (
+                  <Navigate to="/admin/dashboard" />
+                ) : (
+                  <Navigate to="/user/profile" />
+                )
+              ) : (
+                <Navigate to="/login" />
+              )
+            }
+          />
+
+          {/* 404 Page */}
+          <Route 
+            path="*" 
+            element={
+              <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
+                <div className="text-center">
+                  <h1 className="text-6xl font-bold mb-4">404</h1>
+                  <p className="text-xl mb-8">ไม่พบหน้าที่คุณกำลังค้นหา</p>
+                  <button 
+                    onClick={() => history.back()} 
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                  >
+                    กลับไปหน้าก่อนหน้า
+                  </button>
+                </div>
+              </div>
+            } 
+          />
+        </Routes>
+      </Suspense>
+    </Router>
+  );
+};
+
+export default AppRouter;
